@@ -8,6 +8,7 @@
 // Copyright (C) 2011-2012, 2014-2015	Victor Hugo Sperle Campos
 //
 //===----------------------------------------------------------------------===//
+
 #include "llvm/Pass.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Dominators.h"

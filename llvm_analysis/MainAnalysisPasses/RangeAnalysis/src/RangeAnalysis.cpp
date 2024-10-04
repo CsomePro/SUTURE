@@ -25,7 +25,7 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Argument.h"
-#include "llvm/IR/CallSite.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
@@ -37,13 +37,15 @@
 #include "llvm/IR/Use.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
-#include "llvm/PassAnalysisSupport.h"
-#include "llvm/PassSupport.h"
+// #include "llvm/PassAnalysisSupport.h"
+#include "llvm/Pass.h"
+// #include "llvm/PassSupport.h"
 #include "llvm/Support/FileSystem.h"
 
 int __builtin_clz(unsigned int);
 
 #define DEBUG_TYPE "range-analysis"
+
 
 namespace RangeAnalysis {
 

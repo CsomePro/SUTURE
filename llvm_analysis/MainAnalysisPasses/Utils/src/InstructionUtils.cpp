@@ -6,6 +6,7 @@
 #include <llvm/IR/CFG.h>
 #include "InstructionUtils.h"
 
+#include "llvm/IR/DerivedTypes.h" // Add this line to include CompositeType
 using namespace llvm;
 
 //#define DEBUG_TYPE_CMP
@@ -103,7 +104,7 @@ namespace DRCHECKER {
         if(visitedBBs.find(currBB) != visitedBBs.end()) {
             return nullptr;
         }
-        for(auto &iu :currBB->getInstList()) {
+        for(auto &iu : *currBB) {
             Instruction *currIterI = &iu;
             DILocation *currIteDL = currIterI->getDebugLoc();
             if(currIteDL != nullptr && currIteDL->getFilename().equals(funcFileName)) {
@@ -133,7 +134,7 @@ namespace DRCHECKER {
         for (auto &MD : MDs) {
             if (MDNode *N = MD.second) {
                 if (auto *subProgram = dyn_cast<DISubprogram>(N)) {
-                    return subProgram->getFilename();
+                    return subProgram->getFilename().str();
                 }
             }
         }
@@ -269,7 +270,7 @@ namespace DRCHECKER {
         OS << " ,SRC: ";
         DILocation *instrLoc = InstructionUtils::getCorrectInstLoc(I);
         if (instrLoc != nullptr) {
-            OS << InstructionUtils::escapeJsonString(instrLoc->getFilename());
+            OS << InstructionUtils::escapeJsonString(instrLoc->getFilename().str());
             OS << " @ " << getCorrectLineNumber(instrLoc);
         } else {
             OS << "N/A";
@@ -296,13 +297,13 @@ namespace DRCHECKER {
         O << "\"at_line\":";
         DILocation *instrLoc = InstructionUtils::getCorrectInstLoc(I);
         if(instrLoc != nullptr) {
-            O << getCorrectLineNumber(instrLoc) << ",\"at_file\":\"" << InstructionUtils::escapeJsonString(instrLoc->getFilename()) << "\",";
+            O << getCorrectLineNumber(instrLoc) << ",\"at_file\":\"" << InstructionUtils::escapeJsonString(instrLoc->getFilename().str()) << "\",";
         } else {
             O << "-1,";
         }
         O << "\"at_func\":";
         if (I->getFunction()) {
-            O << "\"" << InstructionUtils::escapeJsonString(I->getFunction()->getName()) << "\"";
+            O << "\"" << InstructionUtils::escapeJsonString(I->getFunction()->getName().str()) << "\"";
         }else {
             O << "-1";
         }
@@ -648,7 +649,7 @@ namespace DRCHECKER {
         while (ty) {
             if (ty->isPointerTy()) {
                 ++r;
-                ty = ty->getPointerElementType();
+                ty = ty->getNonOpaquePointerElementType();
             }else {
                 break;
             }
@@ -670,9 +671,8 @@ namespace DRCHECKER {
             return false;
         }
         if (wild_intp) {
-            //i8/void can match any non-composite types, but if the other is composite, we return false.
-            if (InstructionUtils::isPrimitiveTy(ty0,8) || InstructionUtils::isPrimitiveTy(ty1,8)) {
-                return (!dyn_cast<CompositeType>(ty0) && !dyn_cast<CompositeType>(ty1));
+                //i8/void can match any non-composite types, but if the other is composite, we return false.
+                return ((!dyn_cast<llvm::DICompositeType>(ty0)) && (!dyn_cast<llvm::DICompositeType>(ty1)));
             }
         }
         //From now on neither can be null.

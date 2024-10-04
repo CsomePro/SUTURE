@@ -22,6 +22,7 @@
 #include <chrono>
 #include <ctime>
 #include <set>
+#include <map>
 
 #define TIMING
 
@@ -243,7 +244,7 @@ namespace DRCHECKER {
 
         static std::map<ConstantAggregate*,std::set<long>> *getUsesInGlobalConstStruct(Value *v);
 
-        static std::map<CompositeType*,std::set<long>> *getUsesInStruct(Value *v);
+        static std::map<StructType*, std::set<long>> *getUsesInStruct(Value *v);
 
         //Create a new GEP from an existing one, using only the first few indices.
         static GetElementPtrInst *createSubGEP(GEPOperator*,unsigned);
@@ -260,7 +261,7 @@ namespace DRCHECKER {
 
         static Type *getHeadTy(Type *ty);
 
-        static std::vector<FieldDesc*> *getCompTyDesc(DataLayout *dl, CompositeType *ty);
+        static std::vector<FieldDesc*> *getCompTyDesc(DataLayout *dl, StructType *ty);
 
         static bool isTyUsedByFunc(Type *ty, Function *func);
 
