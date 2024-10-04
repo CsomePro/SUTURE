@@ -6,6 +6,7 @@
 #define PROJECT_FUNCTIONCHECKER_H
 
 #include <set>
+#include <map>
 #include "llvm/Pass.h"
 // #include "llvm/PassAnalysisSupport.h"
 #include "llvm/Analysis/AliasSetTracker.h"

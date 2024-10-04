@@ -8,6 +8,9 @@
 
 #include "llvm/IR/DerivedTypes.h" // Add this line to include CompositeType
 using namespace llvm;
+#include "llvm/BinaryFormat/Dwarf.h"
+
+#include "llvm/Support/GraphWriter.h"
 
 //#define DEBUG_TYPE_CMP
 
@@ -212,7 +215,7 @@ namespace DRCHECKER {
                 dloc = dyn_cast<DILocation>(md);
             }else {
                 //Not sure whether this is possible...
-                dbgs() << "!!! InstructionUtils::getCorrectInstLoc(): The inlinedAt metadata is not a DILocation! inst: "
+                llvm::dbgs() << "!!! InstructionUtils::getCorrectInstLoc(): The inlinedAt metadata is not a DILocation! inst: "
                 << InstructionUtils::getValueStr(I) << "\n";
                 break;
             }
@@ -671,9 +674,8 @@ namespace DRCHECKER {
             return false;
         }
         if (wild_intp) {
-                //i8/void can match any non-composite types, but if the other is composite, we return false.
-                return ((!dyn_cast<llvm::DICompositeType>(ty0)) && (!dyn_cast<llvm::DICompositeType>(ty1)));
-            }
+            //i8/void can match any non-composite types, but if the other is composite, we return false.
+            return ((!dyn_cast<llvm::DICompositeType>(ty0)) && (!dyn_cast<llvm::DICompositeType>(ty1)));
         }
         //From now on neither can be null.
         if (ty0->getTypeID() != ty1->getTypeID()) {
@@ -720,13 +722,13 @@ namespace DRCHECKER {
 #endif
                 return false;
             }
-        }else if (dyn_cast<SequentialType>(ty0)) {
+        }else if (dyn_cast<ArrayType>(ty0)) {
             //Ensure that their #elem are same.
-            if (dyn_cast<SequentialType>(ty0)->getNumElements() != dyn_cast<SequentialType>(ty1)->getNumElements()) {
+            if (dyn_cast<ArrayType>(ty0)->getNumElements() != dyn_cast<ArrayType>(ty1)->getNumElements()) {
                 return false;
             }
-            return InstructionUtils::same_types(dyn_cast<SequentialType>(ty0)->getElementType(), 
-                                                dyn_cast<SequentialType>(ty1)->getElementType());
+            return InstructionUtils::same_types(dyn_cast<ArrayType>(ty0)->getElementType(), 
+                                                dyn_cast<ArrayType>(ty1)->getElementType());
         }
         if (n <= 1) {
             //They are not composite types, nor pointers, and only one sub-type is involved, so they must be basic types, e.g. i32.
@@ -846,7 +848,7 @@ namespace DRCHECKER {
             return;
         }
         Type *baseTy = orgPointer->getType()->getPointerElementType();
-        if (!dyn_cast<CompositeType>(baseTy)) {
+        if (!dyn_cast<DICompositeType>(baseTy)) {
             return;
         }
         Type *curTy = baseTy;
@@ -859,7 +861,7 @@ namespace DRCHECKER {
             long fid = (CI ? CI->getZExtValue() : -1);
             res.ty = curTy;
             res.fid = fid;
-            if (dyn_cast<CompositeType>(curTy) && InstructionUtils::isIndexValid(curTy,fid)) {
+            if (dyn_cast<DICompositeType>(curTy) && InstructionUtils::isIndexValid(curTy,fid)) {
                 //Get the subsequent field type.
                 curTy = InstructionUtils::getTypeAtIndex(curTy,fid);
             } else {
@@ -874,8 +876,8 @@ namespace DRCHECKER {
 
     //In this function we try to get the value assignment to a certain struct field both statically 
     //(e.g. when defining a global constant struct) and dynamically (e.g. via a "store" inst)
-    std::map<CompositeType*,std::set<long>> *InstructionUtils::getUsesInStruct(Value *v) {
-        static std::map<Value*,std::map<CompositeType*,std::set<long>>> use_cache;
+    std::map<StructType*,std::set<long>> *InstructionUtils::getUsesInStruct(Value *v) {
+        static std::map<Value*,std::map<StructType*,std::set<long>>> use_cache;
         if (!v) {
             return nullptr;
         }
@@ -884,7 +886,7 @@ namespace DRCHECKER {
         }
         //First get the info from static assignments.
         std::map<ConstantAggregate*,std::set<long>> *constU = InstructionUtils::getUsesInGlobalConstStruct(v);
-        std::map<CompositeType*,std::set<long>> dynU;
+        std::map<StructType*,std::set<long>> dynU;
         //Then dynamic ones.
         //Step 1. Get the store inst(s) to store this value to somewhere.
         std::set<StoreInst*> stInsts;
@@ -902,8 +904,8 @@ namespace DRCHECKER {
             if (dyn_cast<GEPOperator>(dstp)) {
                 TypeField tf;
                 getGEPDstTypeField(dyn_cast<GEPOperator>(dstp),tf);
-                if (tf.ty && dyn_cast<CompositeType>(tf.ty)) {
-                    dynU[dyn_cast<CompositeType>(tf.ty)].insert(tf.fid);
+                if (tf.ty && dyn_cast<StructType>(tf.ty)) {
+                    dynU[dyn_cast<StructType>(tf.ty)].insert(tf.fid);
                 }
             }
         }
@@ -911,10 +913,10 @@ namespace DRCHECKER {
         if (constU) {
             for (auto &e : *constU) {
                 ConstantAggregate *constA = e.first;
-                if (!constA || !constA->getType() || !dyn_cast<CompositeType>(constA->getType())) {
+                if (!constA || !constA->getType() || !dyn_cast<StructType>(constA->getType())) {
                     continue;
                 }
-                dynU[dyn_cast<CompositeType>(constA->getType())].insert(e.second.begin(),e.second.end());
+                dynU[dyn_cast<StructType>(constA->getType())].insert(e.second.begin(),e.second.end());
             }
         }
         //Update the cache and return.
@@ -1133,7 +1135,7 @@ namespace DRCHECKER {
         Type *ety = ty;
         while (ety) {
             fd->tys.push_back(ety);
-            if (dyn_cast<CompositeType>(ety)) {
+            if (dyn_cast<StructType>(ety)) {
                 //We need to reserve the innermost to outermost host order.
                 fd->host_tys.insert(fd->host_tys.begin(),ety);
                 fd->fid.push_back(0);
@@ -1173,8 +1175,8 @@ namespace DRCHECKER {
 
     //We want to analyze a struct type, figuring out all possible fields types at each available offset in bits,
     //this includes the internal fields in (nested) embedded structs which is not supported by original llvm API.
-    std::vector<FieldDesc*> *InstructionUtils::getCompTyDesc(DataLayout *dl, CompositeType *ty) {
-        static std::map<CompositeType*,std::vector<FieldDesc*>> descs;
+    std::vector<FieldDesc*> *InstructionUtils::getCompTyDesc(DataLayout *dl, StructType *ty) {
+        static std::map<StructType*,std::vector<FieldDesc*>> descs;
 #ifdef DEBUG_GET_TY_DESC
         dbgs() << "getCompTyDesc(): type: " << InstructionUtils::getTypeStr(ty) << "\n";
 #endif
@@ -1188,8 +1190,8 @@ namespace DRCHECKER {
             return &descs[ty];
         }
         std::vector<FieldDesc*> resDesc;
-        if (dyn_cast<SequentialType>(ty)) {
-            SequentialType *seqTy = dyn_cast<SequentialType>(ty);
+        if (dyn_cast<ArrayType>(ty)) {
+            ArrayType *seqTy = dyn_cast<ArrayType>(ty);
             //NOTE: in the kernel we can often see the zero-length array at the end of a struct (i.e. flexible length array).
             //This is normal so we shouldn't return nullptr, instead we return a null content resDesc in the end of this function.
             if (seqTy->getNumElements() > 0) {
@@ -1198,8 +1200,8 @@ namespace DRCHECKER {
                     return nullptr;
                 }
                 std::vector<FieldDesc*> edesc, *pdesc = nullptr;
-                if (dyn_cast<CompositeType>(aty)) {
-                    pdesc = InstructionUtils::getCompTyDesc(dl,dyn_cast<CompositeType>(aty));
+                if (dyn_cast<StructType>(aty)) {
+                    pdesc = InstructionUtils::getCompTyDesc(dl,dyn_cast<StructType>(aty));
                 }
                 if (!pdesc) {
                     //Either non-composite element or failed to get type desc of the composite element, just treat the element as an atom.
@@ -1239,9 +1241,9 @@ namespace DRCHECKER {
                     continue;
                 }
                 unsigned boff = stLayout->getElementOffsetInBits(i); 
-                if (dyn_cast<CompositeType>(ety)) {
+                if (dyn_cast<StructType>(ety)) {
                     //Ok the element is an embedded composite type.
-                    std::vector<FieldDesc*> *pdesc = InstructionUtils::getCompTyDesc(dl,dyn_cast<CompositeType>(ety));
+                    std::vector<FieldDesc*> *pdesc = InstructionUtils::getCompTyDesc(dl,dyn_cast<StructType>(ety));
                     if (pdesc) {
                         for (unsigned j = 0; j < pdesc->size(); ++j) {
                             FieldDesc *fd = new FieldDesc((*pdesc)[j]);
@@ -1423,7 +1425,7 @@ namespace DRCHECKER {
             return false;
         }
         //A special case: if it's a sequential type, we allow "-1" to represent a variable index. 
-        if (fid == -1 && dyn_cast<SequentialType>(ty)) {
+        if (fid == -1 && dyn_cast<ArrayType>(ty)) {
             return true;
         }
         //From now on the negative index is not allowed...
@@ -1449,22 +1451,22 @@ namespace DRCHECKER {
             return nullptr;
         }
         Type *ety = ty;
-        if (dyn_cast<CompositeType>(ety)) {
+        if (dyn_cast<StructType>(ety)) {
             //If this object has an opaque type, we cannot get the field type info..
             if (InstructionUtils::isOpaqueSt(ety)) {
                 *err = 4;
                 return nullptr;
             }
             //Allow the variable index for the sequential type.
-            if (fid == -1 && dyn_cast<SequentialType>(ety)) {
-                return dyn_cast<SequentialType>(ety)->getElementType();
+            if (fid == -1 && dyn_cast<ArrayType>(ety)) {
+                return dyn_cast<ArrayType>(ety)->getElementType();
             }
             //Boundary check
             if (!InstructionUtils::isIndexValid(ety,fid)) {
                 *err = 2;
                 return nullptr;
             }
-            ety = dyn_cast<CompositeType>(ety)->getTypeAtIndex(fid);
+            ety = dyn_cast<StructType>(ety)->getTypeAtIndex(fid);
         }else if (fid) {
             //This is not a composite obj, so we don't know the field type at the non-zero fid.
             *err = 3;
@@ -1672,7 +1674,7 @@ namespace DRCHECKER {
     }
 
     bool InstructionUtils::isNullCompTy(Type *ty) {
-        if (ty && dyn_cast<CompositeType>(ty)) {
+        if (ty && dyn_cast<StructType>(ty)) {
             return (InstructionUtils::isOpaqueSt(ty) || !InstructionUtils::isIndexValid(ty,0));
         }
         return false;
@@ -1807,9 +1809,9 @@ namespace DRCHECKER {
                     << InstructionUtils::getValueStr(gep) << "\n";
                     break;
                 }
-                if (dyn_cast<CompositeType>(curTy) && InstructionUtils::isIndexValid(curTy,fid)) {
+                if (dyn_cast<StructType>(curTy) && InstructionUtils::isIndexValid(curTy,fid)) {
                     //Get the bit offset of curent fid in current host type.
-                    std::vector<FieldDesc*> *tyd = InstructionUtils::getCompTyDesc(dl,dyn_cast<CompositeType>(curTy));
+                    std::vector<FieldDesc*> *tyd = InstructionUtils::getCompTyDesc(dl,dyn_cast<StructType>(curTy));
                     int ind = InstructionUtils::locateFieldInTyDesc(tyd,fid);
                     if (ind < 0) {
                         break;
@@ -1837,7 +1839,7 @@ namespace DRCHECKER {
         if (cache.find(ty) == cache.end()) {
             if (!ty) {
                 cache[ty].clear();
-            }else if (!dyn_cast<CompositeType>(ty)) {
+            }else if (!dyn_cast<StructType>(ty)) {
                 cache[ty] = InstructionUtils::getTypeStr(ty);
             }else if (dyn_cast<StructType>(ty)) {
                 if (dyn_cast<StructType>(ty)->hasName()) {
@@ -1845,9 +1847,9 @@ namespace DRCHECKER {
                 }else {
                     cache[ty] = InstructionUtils::getTypeStr(ty);
                 }
-            }else if (dyn_cast<SequentialType>(ty)) {
-                std::string es = InstructionUtils::getTypeName(dyn_cast<SequentialType>(ty)->getElementType());
-                cache[ty] = "[" + es + "]*" + std::to_string(dyn_cast<SequentialType>(ty)->getNumElements());
+            }else if (dyn_cast<ArrayType>(ty)) {
+                std::string es = InstructionUtils::getTypeName(dyn_cast<ArrayType>(ty)->getElementType());
+                cache[ty] = "[" + es + "]*" + std::to_string(dyn_cast<ArrayType>(ty)->getNumElements());
             }else {
                 cache[ty] = "UNK";
             }
@@ -1888,7 +1890,7 @@ namespace DRCHECKER {
         std::string Filename = "cfg_dot_files/cfg." + f->getName().str() + ".dot";
         dbgs() << "dumpFuncGraph(): Writing '" << Filename << "'...\n";
         std::error_code ErrorInfo;
-        raw_fd_ostream File(Filename, ErrorInfo, sys::fs::F_Text);
+        raw_fd_ostream File(Filename, ErrorInfo, sys::fs::OF_TextWithCRLF);
         if (ErrorInfo.value() == 0)
             WriteGraph(File, f);
         else
@@ -1976,7 +1978,7 @@ out:
         if (InstructionUtils::same_types(ty0,ty1)) {
             return 0;
         }
-        if (!dyn_cast<CompositeType>(ty0) && !dyn_cast<CompositeType>(ty1)) {
+        if (!dyn_cast<StructType>(ty0) && !dyn_cast<StructType>(ty1)) {
             //TODO: consider more special cases, like i8* can be potentially converted to other pointer types.
             if (!ty0->isVoidTy() != !ty1->isVoidTy()) {
                 return (ty0->isVoidTy() ? -1 : 1);
@@ -2187,7 +2189,7 @@ out:
         // Find only those functions which are part of the driver.
         DILocation *instrLoc = InstructionUtils::getCorrectInstLoc(inst);
         if (instrLoc) {
-            std::string currFileName = instrLoc->getFilename();
+            std::string currFileName = instrLoc->getFilename().str();
             size_t found = currFileName.find_last_of("/");
             std::string parFol = currFileName.substr(0, found);
             std::set<Function*> newList;
@@ -2391,9 +2393,9 @@ out:
             Type *ty0 = ty->getTypeAtIndex(i);
             if (InstructionUtils::isPrimitiveTy(ty0)) {
                 ++cnt;
-            }else if (dyn_cast<SequentialType>(ty0)) {
-                cnt += dyn_cast<SequentialType>(ty0)->getNumElements();
-                ty0 = dyn_cast<SequentialType>(ty0)->getElementType();
+            }else if (dyn_cast<ArrayType>(ty0)) {
+                cnt += dyn_cast<ArrayType>(ty0)->getNumElements();
+                ty0 = dyn_cast<ArrayType>(ty0)->getElementType();
             }else if (dyn_cast<StructType>(ty0)) {
                 Type *ty1 = nullptr;
                 int c0 = -1;
